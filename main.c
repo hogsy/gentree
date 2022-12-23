@@ -145,7 +145,7 @@ int main( int argc, char **argv ) {
 		}
 
 		*d = *p++;
-		if ( *d == '\r' ) {
+		if ( *d == '\r' || *d == '\n' ) {
 			*d = '\0';
 			if ( tmp[ 1 ] == ':' && ( tmp[ 2 ] == '\\' || tmp[ 2 ] == '/' ) ) {
 				d = tmp + 3;
