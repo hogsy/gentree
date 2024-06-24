@@ -4,26 +4,45 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <direct.h>
 
-#include <Windows.h>
+#if defined( _WIN32 )
+#	include <direct.h>
+#	include <Windows.h>
+#	define l_mkdir( X ) mkdir( X )
+#else
+#	include <sys/stat.h>
+#	include <errno.h>
+#	include <linux/limits.h>
+#	define _stricmp     strcasecmp
+#	define l_mkdir( X ) mkdir( X, 0777 )
+#	define MAX_PATH     PATH_MAX
+#endif
 
 void *GTAllocOrDie( size_t pool ) {
-	void *p = calloc( 1, pool );
+	void *p = malloc( pool );
 	if ( p == NULL ) {
 		printf( "Failed on allocating %zu bytes!\n", pool );
 		abort();
 	}
 
+	memset( p, 0, pool );
 	return p;
 }
 
 /* https://stackoverflow.com/a/42794218
  * CC BY-SA 3.0 */
 static char *convert_from_wstring( const wchar_t *wstr, int wstr_len ) {
-	int num_chars = WideCharToMultiByte( CP_UTF8, 0, wstr, wstr_len, NULL, 0, NULL, NULL );
+#if defined( _WIN32 )
+	size_t num_chars = WideCharToMultiByte( CP_UTF8, 0, wstr, wstr_len, NULL, 0, NULL, NULL );
+#else
+	size_t num_chars = wcstombs( NULL, wstr, 0 );
+#endif
 	char *strTo = ( char * ) GTAllocOrDie( ( num_chars + 1 ) * sizeof( char ) );
+#if defined( _WIN32 )
 	WideCharToMultiByte( CP_UTF8, 0, wstr, wstr_len, strTo, num_chars, NULL, NULL );
+#else
+	wcstombs( strTo, wstr, num_chars );
+#endif
 	strTo[ num_chars ] = '\0';
 	return strTo;
 }
@@ -63,7 +82,7 @@ static void GTCreatePath( const char *path ) {
 		if ( i != 0 &&
 		     ( path[ i ] == '\\' || path[ i ] == '/' ) &&
 		     ( path[ i - 1 ] != '\\' && path[ i - 1 ] != '/' ) ) {
-			if ( mkdir( tmp ) != 0 ) {
+			if ( l_mkdir( tmp ) != 0 ) {
 				if ( errno == EEXIST ) {
 					continue;
 				}
@@ -75,7 +94,7 @@ static void GTCreatePath( const char *path ) {
 		}
 	}
 
-	mkdir( tmp );
+	l_mkdir( tmp );
 	free( tmp );
 }
 
@@ -101,9 +120,8 @@ int main( int argc, char **argv ) {
 
 	const char *path = argv[ 1 ];
 
-	FILE *file;
-	errno_t err = fopen_s( &file, path, "rb" );
-	if ( err != 0 ) {
+	FILE *file = fopen( path, "rb" );
+	if ( file == NULL ) {
 		printf( "Failed to open \"%s\"!\n", path );
 		return EXIT_FAILURE;
 	}
@@ -163,13 +181,14 @@ int main( int argc, char **argv ) {
 				if ( lslash != NULL ) {
 					size_t pl = ( lslash - d ) + 1;
 					char *dir = GTAllocOrDie( sizeof( char ) * pl );
-					strncpy_s( dir, pl, d, pl - 1 );
+					strncpy( dir, d, pl - 1 );
+					dir[ pl - 1 ] = '\0';// Manually null-terminate the string
 					GTCreatePath( dir );
 					free( dir );
 				}
 
 				printf( "\"%s\": ", d );
-				if ( fopen_s( &file, d, "w" ) == 0 ) {
+				if ( ( file = fopen( d, "w" ) ) != NULL ) {
 					unsigned int type = GTGetFileType( d );
 					switch ( type ) {
 						default:
